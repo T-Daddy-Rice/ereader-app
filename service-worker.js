@@ -6,7 +6,7 @@
 // NOTE: bump CACHE_NAME (e.g. 'v1' -> 'v2') any time you change one of the
 // PRECACHE_URLS files and redeploy, so returning visitors pick up the new
 // version instead of the old cached one.
-const CACHE_NAME = 'ereader-shell-v1';
+const CACHE_NAME = 'ereader-shell-v2';
 
 const PRECACHE_URLS = [
   './',

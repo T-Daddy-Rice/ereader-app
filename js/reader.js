@@ -255,7 +255,7 @@ function renderTocItems(items, container, depth) {
     li.textContent = item.label.trim();
     li.style.paddingLeft = `${8 + depth * 16}px`;
     li.addEventListener('click', () => {
-      rendition.display(item.href);
+      safeDisplay(item.href, item.label.trim());
       togglePanel(tocPanel);
       tocPanel.hidden = true;
     });
@@ -264,6 +264,26 @@ function renderTocItems(items, container, depth) {
       renderTocItems(item.subitems, container, depth + 1);
     }
   }
+}
+
+// epub.js's rendition.display(target) resolves `target` via
+// book.spine.get(target) internally, and on some books the table-of-
+// contents/nav document's hrefs don't exactly match how epub.js indexes
+// spine items (this has been observed to differ between browser engines).
+// When that lookup fails, letting epub.js proceed anyway risks it trying
+// to resolve the target as a real network request - which, on a project
+// site like GitHub Pages, can 404 all the way out to the bare domain root.
+// Validate the target resolves to a real chapter first and refuse to
+// navigate otherwise, so a bad link fails quietly instead of leaving the
+// app entirely.
+function safeDisplay(target, label) {
+  const section = book.spine.get(target);
+  if (!section) {
+    console.error(`No chapter found for "${label}" (target: ${target}) - refusing to navigate`);
+    alert(`Couldn't open "${label}" - this link doesn't match a chapter in this book.`);
+    return;
+  }
+  rendition.display(target);
 }
 
 // ---------------------------------------------------------------------
@@ -277,7 +297,7 @@ async function refreshBookmarkList() {
     const li = document.createElement('li');
     li.textContent = bookmark.label || 'Bookmark';
     li.addEventListener('click', () => {
-      rendition.display(bookmark.cfi);
+      safeDisplay(bookmark.cfi, bookmark.label || 'Bookmark');
       tocPanel.hidden = true;
     });
 
