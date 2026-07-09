@@ -73,6 +73,7 @@ async function handleSubmit(event) {
     const answer = await sendMessage({ system, messages, maxTokens: CHAT_MAX_TOKENS });
     thinkingBubble.querySelector('.chat-bubble-text').textContent = answer;
     thinkingBubble.classList.remove('chat-bubble-pending');
+    collapseIfLong(thinkingBubble);
     await appendChatMessage(readerState.bookId, { role: 'assistant', content: answer });
   } catch (error) {
     thinkingBubble.remove();
@@ -93,8 +94,32 @@ function appendBubble(role, text, { pending = false } = {}) {
 
   bubble.appendChild(textEl);
   messagesEl.appendChild(bubble);
+  if (!pending) collapseIfLong(bubble);
   scrollToBottom();
   return bubble;
+}
+
+// Long AI answers start collapsed with a "Show more" toggle, so a wall of
+// text doesn't push the input off-screen or bury earlier messages.
+const COLLAPSE_HEIGHT_PX = 160;
+
+function collapseIfLong(bubble) {
+  const textEl = bubble.querySelector('.chat-bubble-text');
+  requestAnimationFrame(() => {
+    if (textEl.scrollHeight <= COLLAPSE_HEIGHT_PX + 4) return;
+    bubble.classList.add('chat-bubble-collapsed');
+    if (bubble.querySelector('.chat-bubble-toggle')) return;
+
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'chat-bubble-toggle';
+    toggle.textContent = 'Show more';
+    toggle.addEventListener('click', () => {
+      const collapsed = bubble.classList.toggle('chat-bubble-collapsed');
+      toggle.textContent = collapsed ? 'Show more' : 'Show less';
+    });
+    bubble.appendChild(toggle);
+  });
 }
 
 function showError(error) {

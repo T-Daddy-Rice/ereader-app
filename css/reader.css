@@ -19,40 +19,15 @@
   border: none;
 }
 
-/* Covers the whole book area, above the iframe. Handles taps (left/right
-   edge = page turn) and swipes (anywhere = page turn, direction-based) in
-   JS - see reader.js. Sits in the main page, not inside the iframe, since
-   touch events inside the sandboxed book iframe aren't reliably delivered
-   on iOS. */
+/* Covers the whole book area, above the iframe. Handles swipes (anywhere
+   = page turn, direction-based) in JS - see reader.js. Sits in the main
+   page, not inside the iframe, since touch events inside the sandboxed
+   book iframe aren't reliably delivered on iOS. */
 .page-turn-overlay {
   position: absolute;
   inset: 0;
   z-index: 1;
   touch-action: pan-y;
-}
-
-.tap-zone-icon {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(128, 128, 128, 0.16);
-  color: var(--text-secondary);
-  font-size: 16px;
-  pointer-events: none;
-}
-
-.tap-zone-icon-prev {
-  left: 12px;
-}
-
-.tap-zone-icon-next {
-  right: 12px;
 }
 
 .font-size-value {

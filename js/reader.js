@@ -49,9 +49,9 @@ const DISPLAY_SETTINGS_KEY = 'ereader.displaySettings';
 const DEFAULT_DISPLAY_SETTINGS = { fontSizePercent: 100, fontFamily: 'serif', theme: 'light', layout: 'single' };
 
 const READING_THEMES = {
-  light: { body: { background: '#ffffff', color: '#1c1c1e' } },
-  sepia: { body: { background: '#f4ecd8', color: '#5b4636' } },
-  dark: { body: { background: '#1c1c1e', color: '#d8d8dc' } },
+  light: { background: '#ffffff', color: '#1c1c1e' },
+  sepia: { background: '#f4ecd8', color: '#5b4636' },
+  dark: { background: '#1c1c1e', color: '#d8d8dc' },
 };
 
 let book = null;
@@ -128,24 +128,15 @@ export function initReader({ onBack, onChatToggle: onChatToggleCallback }) {
   updateDisplaySettingsUI();
 }
 
-// Page turns (tap edges + swipe anywhere), handled entirely in this page
-// rather than inside the book's iframe. epub.js renders each chapter into
-// a sandboxed iframe, and touch events inside it aren't reliably delivered
-// on iOS Safari - this overlay sits above that iframe in the main document
-// instead, where touch handling is unremarkable.
+// Page turns (swipe anywhere, finger-driven only), handled entirely in
+// this page rather than inside the book's iframe. epub.js renders each
+// chapter into a sandboxed iframe, and touch events inside it aren't
+// reliably delivered on iOS Safari - this overlay sits above that iframe
+// in the main document instead, where touch handling is unremarkable.
 function initPageTurnOverlay() {
-  const EDGE_FRACTION = 0.18; // tap within this fraction of either edge = page turn
   const SWIPE_THRESHOLD_PX = 40;
   const SWIPE_MAX_VERTICAL_PX = 60;
   const SWIPE_MAX_DURATION_MS = 600;
-
-  pageTurnOverlay.addEventListener('click', (event) => {
-    if (!rendition) return;
-    const rect = pageTurnOverlay.getBoundingClientRect();
-    const relativeX = (event.clientX - rect.left) / rect.width;
-    if (relativeX <= EDGE_FRACTION) rendition.prev();
-    else if (relativeX >= 1 - EDGE_FRACTION) rendition.next();
-  });
 
   let touchStartX = null;
   let touchStartY = null;
@@ -234,7 +225,6 @@ export async function openBook(bookId) {
     manager: 'continuous',
   });
 
-  registerReadingThemes();
   applyDisplaySettingsToRendition();
 
   currentProgress = await getProgress(bookId);
@@ -423,15 +413,18 @@ async function updateBookmarkButtonState() {
 // Display settings (font size, typeface, reading theme)
 // ---------------------------------------------------------------------
 
-function registerReadingThemes() {
-  Object.entries(READING_THEMES).forEach(([name, styles]) => {
-    rendition.themes.register(name, styles);
-  });
-}
-
+// Reading theme (background/text color) is applied via themes.override()
+// rather than themes.register()/select(). override() writes the colors as
+// !important inline styles on every currently-open page AND re-applies
+// itself to every page rendered afterward (epub.js hooks it into content
+// creation) - so switching themes can't leave a stray page (e.g. one
+// pre-rendered by the continuous page manager) stuck on the old class,
+// which is what caused dark mode to occasionally get stuck.
 function applyDisplaySettingsToRendition() {
   if (!rendition) return;
-  rendition.themes.select(displaySettings.theme);
+  const theme = READING_THEMES[displaySettings.theme];
+  rendition.themes.override('background', theme.background, true);
+  rendition.themes.override('color', theme.color, true);
   rendition.themes.fontSize(`${displaySettings.fontSizePercent}%`);
   rendition.themes.font(displaySettings.fontFamily === 'serif' ? 'serif' : 'sans-serif');
   rendition.spread(displaySettings.layout === 'two' ? 'auto' : 'none');

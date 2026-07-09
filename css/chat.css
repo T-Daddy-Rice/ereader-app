@@ -58,6 +58,29 @@
   opacity: 0.6;
 }
 
+/* Long answers start collapsed to a fixed height with a fade-out at the
+   bottom, plus a toggle to expand/collapse - see chat.js. */
+.chat-bubble-collapsed .chat-bubble-text {
+  max-height: 160px;
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, black 65%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, black 65%, transparent 100%);
+}
+
+.chat-bubble-toggle {
+  display: block;
+  margin-top: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  opacity: 0.75;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .chat-status {
   margin: 0 16px 10px;
   padding: 10px 12px;
