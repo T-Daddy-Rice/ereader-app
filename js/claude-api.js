@@ -7,7 +7,13 @@
 // https://docs.claude.com/en/api/overview if requests start failing -
 // Anthropic can change this.
 
-import { MODEL_ID, ANTHROPIC_API_VERSION, ANTHROPIC_API_URL } from './constants.js';
+import {
+  MODEL_ID,
+  ANTHROPIC_API_VERSION,
+  ANTHROPIC_API_URL,
+  PRICE_PER_MTOK_INPUT,
+  PRICE_PER_MTOK_OUTPUT,
+} from './constants.js';
 import { getApiKey } from './settings.js';
 
 // `kind` lets callers (chat.js) show a tailored message without having to
@@ -79,5 +85,32 @@ export async function sendMessage({ system, messages, maxTokens }) {
 
   const data = await response.json();
   const textBlock = (data.content || []).find((block) => block.type === 'text');
-  return textBlock ? textBlock.text : '';
+  return { text: textBlock ? textBlock.text : '', usage: data.usage || null };
+}
+
+// Rough dollar cost of one API call, from the `usage` object sendMessage()
+// returns. This is an estimate for display only (e.g. the chat panel's
+// per-reply cost readout) - it's computed from MODEL_ID's per-token prices
+// in constants.js, not pulled from Anthropic's actual billing, so treat it
+// as "about how much," not an exact invoice line.
+export function estimateCost(usage) {
+  if (!usage) return null;
+
+  const inputTokens = usage.input_tokens || 0;
+  const cacheWriteTokens = usage.cache_creation_input_tokens || 0;
+  const cacheReadTokens = usage.cache_read_input_tokens || 0;
+  const outputTokens = usage.output_tokens || 0;
+
+  // Cache writes cost ~1.25x normal input price, cache reads ~0.1x. This
+  // app doesn't currently use prompt caching, so those two are normally 0.
+  const cost =
+    (inputTokens / 1_000_000) * PRICE_PER_MTOK_INPUT +
+    (cacheWriteTokens / 1_000_000) * PRICE_PER_MTOK_INPUT * 1.25 +
+    (cacheReadTokens / 1_000_000) * PRICE_PER_MTOK_INPUT * 0.1 +
+    (outputTokens / 1_000_000) * PRICE_PER_MTOK_OUTPUT;
+
+  return {
+    totalTokens: inputTokens + cacheWriteTokens + cacheReadTokens + outputTokens,
+    cost,
+  };
 }

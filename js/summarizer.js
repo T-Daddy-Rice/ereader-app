@@ -63,9 +63,10 @@ async function requestSummaryFromApi(chapterText) {
     'Only use the chapter text provided below - do not add outside knowledge about the book, ' +
     'its author, or how the story unfolds elsewhere, since the reader has not read past this point.';
 
-  return sendMessage({
+  const { text } = await sendMessage({
     system,
     messages: [{ role: 'user', content: `Summarize this chapter:\n\n${chapterText}` }],
     maxTokens: SUMMARY_MAX_TOKENS,
   });
+  return text;
 }

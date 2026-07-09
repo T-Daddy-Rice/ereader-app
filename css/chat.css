@@ -58,6 +58,12 @@
   opacity: 0.6;
 }
 
+.chat-bubble-meta {
+  margin-top: 4px;
+  font-size: 11px;
+  opacity: 0.6;
+}
+
 /* Long answers start collapsed to a fixed height with a fade-out at the
    bottom, plus a toggle to expand/collapse - see chat.js. */
 .chat-bubble-collapsed .chat-bubble-text {

@@ -5,7 +5,7 @@
 import { getReaderState } from './reader.js';
 import { getChatHistory, appendChatMessage } from './db.js';
 import { buildChatRequest } from './context-builder.js';
-import { sendMessage, ClaudeApiError } from './claude-api.js';
+import { sendMessage, estimateCost, ClaudeApiError } from './claude-api.js';
 import { CHAT_MAX_TOKENS } from './constants.js';
 
 const messagesEl = document.getElementById('chat-messages');
@@ -70,10 +70,11 @@ async function handleSubmit(event) {
 
   try {
     const { system, messages } = await buildChatRequest(readerState);
-    const answer = await sendMessage({ system, messages, maxTokens: CHAT_MAX_TOKENS });
+    const { text: answer, usage } = await sendMessage({ system, messages, maxTokens: CHAT_MAX_TOKENS });
     thinkingBubble.querySelector('.chat-bubble-text').textContent = answer;
     thinkingBubble.classList.remove('chat-bubble-pending');
     collapseIfLong(thinkingBubble);
+    appendCostMeta(thinkingBubble, usage);
     await appendChatMessage(readerState.bookId, { role: 'assistant', content: answer });
   } catch (error) {
     thinkingBubble.remove();
@@ -97,6 +98,20 @@ function appendBubble(role, text, { pending = false } = {}) {
   if (!pending) collapseIfLong(bubble);
   scrollToBottom();
   return bubble;
+}
+
+// Shows "N tokens · $0.00XX" under a fresh assistant reply, so it's clear
+// what each question actually costs. This is a live-only readout - it's not
+// saved to chat history, so it disappears if you reopen the chat drawer
+// later (the cost was real either way, just not worth persisting for).
+function appendCostMeta(bubble, usage) {
+  const cost = estimateCost(usage);
+  if (!cost) return;
+
+  const metaEl = document.createElement('div');
+  metaEl.className = 'chat-bubble-meta';
+  metaEl.textContent = `${cost.totalTokens.toLocaleString()} tokens · $${cost.cost.toFixed(4)}`;
+  bubble.appendChild(metaEl);
 }
 
 // Long AI answers start collapsed with a "Show more" toggle, so a wall of
