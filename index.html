@@ -60,12 +60,13 @@
 
       <div class="reader-body">
         <div id="viewer" class="viewer"></div>
-        <button id="tap-zone-prev" class="tap-zone tap-zone-prev" aria-label="Previous page">
-          <span class="tap-zone-icon">&#10094;</span>
-        </button>
-        <button id="tap-zone-next" class="tap-zone tap-zone-next" aria-label="Next page">
-          <span class="tap-zone-icon">&#10095;</span>
-        </button>
+        <!-- Sits above the iframe that renders the book (which lives in a
+             sandboxed document touch events don't reliably reach on iOS).
+             Handles both edge taps and swipe-anywhere page turns. -->
+        <div id="page-turn-overlay" class="page-turn-overlay" aria-hidden="true">
+          <span class="tap-zone-icon tap-zone-icon-prev">&#10094;</span>
+          <span class="tap-zone-icon tap-zone-icon-next">&#10095;</span>
+        </div>
       </div>
 
       <!-- Contents (TOC) + bookmarks side panel -->

@@ -15,8 +15,7 @@ const bookmarkButton = document.getElementById('bookmark-button');
 const tocButton = document.getElementById('toc-button');
 const displaySettingsButton = document.getElementById('display-settings-button');
 const chatToggleButton = document.getElementById('chat-toggle-button');
-const tapZonePrev = document.getElementById('tap-zone-prev');
-const tapZoneNext = document.getElementById('tap-zone-next');
+const pageTurnOverlay = document.getElementById('page-turn-overlay');
 
 const tocPanel = document.getElementById('toc-panel');
 const tocList = document.getElementById('toc-list');
@@ -101,8 +100,7 @@ export function initReader({ onBack, onChatToggle: onChatToggleCallback }) {
 
   bookmarkButton.addEventListener('click', toggleBookmarkAtCurrentPosition);
 
-  tapZonePrev.addEventListener('click', () => rendition && rendition.prev());
-  tapZoneNext.addEventListener('click', () => rendition && rendition.next());
+  initPageTurnOverlay();
 
   document.addEventListener('keydown', (event) => {
     if (!rendition || document.getElementById('reader-view').hidden) return;
@@ -119,6 +117,61 @@ export function initReader({ onBack, onChatToggle: onChatToggleCallback }) {
   });
 
   updateDisplaySettingsUI();
+}
+
+// Page turns (tap edges + swipe anywhere), handled entirely in this page
+// rather than inside the book's iframe. epub.js renders each chapter into
+// a sandboxed iframe, and touch events inside it aren't reliably delivered
+// on iOS Safari - this overlay sits above that iframe in the main document
+// instead, where touch handling is unremarkable.
+function initPageTurnOverlay() {
+  const EDGE_FRACTION = 0.18; // tap within this fraction of either edge = page turn
+  const SWIPE_THRESHOLD_PX = 40;
+  const SWIPE_MAX_VERTICAL_PX = 60;
+  const SWIPE_MAX_DURATION_MS = 600;
+
+  pageTurnOverlay.addEventListener('click', (event) => {
+    if (!rendition) return;
+    const rect = pageTurnOverlay.getBoundingClientRect();
+    const relativeX = (event.clientX - rect.left) / rect.width;
+    if (relativeX <= EDGE_FRACTION) rendition.prev();
+    else if (relativeX >= 1 - EDGE_FRACTION) rendition.next();
+  });
+
+  let touchStartX = null;
+  let touchStartY = null;
+  let touchStartTime = 0;
+
+  pageTurnOverlay.addEventListener(
+    'touchstart',
+    (event) => {
+      const touch = event.changedTouches[0];
+      touchStartX = touch.clientX;
+      touchStartY = touch.clientY;
+      touchStartTime = Date.now();
+    },
+    { passive: true }
+  );
+
+  pageTurnOverlay.addEventListener(
+    'touchend',
+    (event) => {
+      if (touchStartX === null || !rendition) return;
+      const touch = event.changedTouches[0];
+      const dx = touch.clientX - touchStartX;
+      const dy = touch.clientY - touchStartY;
+      const dt = Date.now() - touchStartTime;
+      touchStartX = null;
+
+      const isHorizontalSwipe =
+        Math.abs(dx) > SWIPE_THRESHOLD_PX && Math.abs(dy) < SWIPE_MAX_VERTICAL_PX && dt < SWIPE_MAX_DURATION_MS;
+      if (!isHorizontalSwipe) return;
+
+      if (dx < 0) rendition.next();
+      else rendition.prev();
+    },
+    { passive: true }
+  );
 }
 
 function togglePanel(panel) {
@@ -165,6 +218,11 @@ export async function openBook(bookId) {
     height: '100%',
     flow: 'paginated',
     spread: 'auto',
+    // The default manager only handles clicks/keyboard. The continuous
+    // manager has epub.js's built-in touch-swipe ("snap to page") support -
+    // still shows one page at a time since flow is 'paginated', but swiping
+    // actually turns pages on touch devices this way.
+    manager: 'continuous',
   });
 
   registerReadingThemes();
@@ -174,7 +232,6 @@ export async function openBook(bookId) {
   await rendition.display(currentProgress.currentCfi || undefined);
 
   rendition.on('relocated', handleRelocated);
-  rendition.on('rendered', attachSwipeHandlers);
 
   await buildTocList();
   await refreshBookmarkList();
@@ -401,50 +458,3 @@ function setTheme(theme) {
   applyDisplaySettingsToRendition();
 }
 
-// ---------------------------------------------------------------------
-// Touch/swipe page turns
-// ---------------------------------------------------------------------
-// epub.js renders each section inside its own same-origin iframe. Touches
-// on the book text happen inside that iframe's document, not this page's,
-// so a listener on the outer page alone would never see them - we have to
-// attach directly to each iframe's document as it's rendered.
-
-function attachSwipeHandlers(section, view) {
-  const doc = view.document;
-  if (!doc || doc.__swipeHandlersAttached) return;
-  doc.__swipeHandlersAttached = true;
-
-  let startX = null;
-  let startY = null;
-  let startTime = 0;
-
-  doc.addEventListener(
-    'touchstart',
-    (event) => {
-      const touch = event.changedTouches[0];
-      startX = touch.clientX;
-      startY = touch.clientY;
-      startTime = Date.now();
-    },
-    { passive: true }
-  );
-
-  doc.addEventListener(
-    'touchend',
-    (event) => {
-      if (startX === null) return;
-      const touch = event.changedTouches[0];
-      const dx = touch.clientX - startX;
-      const dy = touch.clientY - startY;
-      const dt = Date.now() - startTime;
-      startX = null;
-
-      const isHorizontalSwipe = Math.abs(dx) > 40 && Math.abs(dy) < 60 && dt < 600;
-      if (!isHorizontalSwipe) return;
-
-      if (dx < 0) rendition.next();
-      else rendition.prev();
-    },
-    { passive: true }
-  );
-}
