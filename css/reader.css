@@ -23,12 +23,15 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 15%;
+  width: 18%;
   background: transparent;
   border: none;
   padding: 0;
   cursor: pointer;
   z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .tap-zone-prev {
@@ -37,6 +40,21 @@
 
 .tap-zone-next {
   right: 0;
+}
+
+/* Visible hint that the edges are tappable to turn pages - the tap target
+   itself covers the full edge strip, this icon just marks where. */
+.tap-zone-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(128, 128, 128, 0.16);
+  color: var(--text-secondary);
+  font-size: 16px;
+  pointer-events: none;
 }
 
 .font-size-value {
