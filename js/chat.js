@@ -70,7 +70,12 @@ async function handleSubmit(event) {
 
   try {
     const { system, messages } = await buildChatRequest(readerState);
-    const { text: answer, usage } = await sendMessage({ system, messages, maxTokens: CHAT_MAX_TOKENS });
+    const { text: answer, usage } = await sendMessage({
+      system,
+      messages,
+      maxTokens: CHAT_MAX_TOKENS,
+      cache: true,
+    });
     thinkingBubble.querySelector('.chat-bubble-text').textContent = answer;
     thinkingBubble.classList.remove('chat-bubble-pending');
     collapseIfLong(thinkingBubble);

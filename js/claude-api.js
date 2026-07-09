@@ -27,7 +27,15 @@ export class ClaudeApiError extends Error {
   }
 }
 
-export async function sendMessage({ system, messages, maxTokens }) {
+// `cache: true` marks the request for Anthropic's prompt caching - it
+// writes (or reuses) a cached copy of the request's shared prefix (the
+// system prompt + the stable early messages, e.g. the current chapter's
+// text) so that asking a second question about the same chapter re-reads
+// that chunk at ~10% of its normal price instead of paying full price
+// again. Only worth it for repeat-message conversations (chat), not
+// one-shot calls (chapter summaries) that are never sent again - so
+// summarizer.js leaves this off and chat.js turns it on.
+export async function sendMessage({ system, messages, maxTokens, cache = false }) {
   const apiKey = getApiKey();
   if (!apiKey) {
     throw new ClaudeApiError('No Anthropic API key set yet. Add one in Settings.', 'no-key');
@@ -54,6 +62,10 @@ export async function sendMessage({ system, messages, maxTokens }) {
         max_tokens: maxTokens,
         system,
         messages,
+        // Auto-places the cache breakpoint on the last cacheable block of
+        // the request - simplest option, and fine here since we don't
+        // need finer-grained placement than "cache everything sent so far".
+        ...(cache ? { cache_control: { type: 'ephemeral' } } : {}),
       }),
     });
   } catch (networkError) {
