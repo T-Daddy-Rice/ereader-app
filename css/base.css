@@ -1,0 +1,250 @@
+/* Base layout, reset, and shared components (buttons, panels, top bar).
+   View-specific styles live in library.css / reader.css / chat.css. */
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  /* Respect the iPad's notch / home indicator safe areas. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+/* The [hidden] attribute already means display:none in browsers, but we
+   restate it with !important here because some of the elements it's used
+   on (views, panels) also get a `display: flex` rule elsewhere in this
+   file - without this, that flex rule can win the cascade and show a
+   "hidden" element. */
+[hidden] {
+  display: none !important;
+}
+
+/* ----------------------- Theme colors (app chrome) ----------------------- */
+/* This only themes the app's own UI (top bar, panels, buttons). The book's
+   reading theme (light/sepia/dark) is separate and applied inside the
+   epub.js iframe by reader.js. */
+
+:root {
+  --bg: #ffffff;
+  --bg-elevated: #f5f5f7;
+  --text: #1c1c1e;
+  --text-secondary: #6e6e73;
+  --border: #d1d1d6;
+  --accent: #0a84ff;
+  --danger: #ff3b30;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1c1e;
+    --bg-elevated: #2c2c2e;
+    --text: #f5f5f7;
+    --text-secondary: #98989d;
+    --border: #3a3a3c;
+    --accent: #0a84ff;
+    --danger: #ff453a;
+  }
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* ----------------------------- App shell ----------------------------- */
+
+#app {
+  height: 100%;
+}
+
+.view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.top-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.app-title {
+  font-size: 17px;
+  font-weight: 600;
+  margin: 0;
+  flex: 1;
+}
+
+.app-title-truncate {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.top-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.icon-button {
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 18px;
+  line-height: 1;
+  padding: 8px;
+  min-width: 40px;
+  min-height: 40px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.icon-button:hover,
+.icon-button:active {
+  background: var(--bg-elevated);
+}
+
+/* ------------------------------- Panels ------------------------------- */
+/* Side panels (contents/bookmarks, display settings) and the chat drawer
+   all slide in from the right and share this base look. */
+
+.side-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(340px, 88vw);
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.15);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.panel-header h2 {
+  font-size: 16px;
+  margin: 0;
+}
+
+.panel-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+}
+
+.panel-tab {
+  flex: 1;
+  padding: 10px;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+
+.panel-tab-active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.panel-list {
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.panel-list li {
+  padding: 10px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.panel-list li:hover {
+  background: var(--bg-elevated);
+}
+
+/* ------------------------------- Buttons ------------------------------- */
+
+.pill-button {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.pill-button-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.button-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.primary-button {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  padding: 12px 16px;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  width: 100%;
+}
+
+.settings-group {
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-label {
+  display: block;
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.settings-status {
+  font-size: 13px;
+  margin-top: 10px;
+}
+
+.empty-message {
+  color: var(--text-secondary);
+  padding: 24px 16px;
+  text-align: center;
+}

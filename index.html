@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Reader</title>
+
+  <!-- PWA metadata. iOS Safari mostly ignores manifest.webmanifest for
+       "Add to Home Screen" and instead reads these apple-* tags directly. -->
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Reader" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <meta name="theme-color" content="#1c1c1e" />
+
+  <link rel="stylesheet" href="css/base.css" />
+  <link rel="stylesheet" href="css/library.css" />
+  <link rel="stylesheet" href="css/reader.css" />
+  <link rel="stylesheet" href="css/chat.css" />
+</head>
+<body>
+  <div id="app">
+
+    <!-- ===================== Library view ===================== -->
+    <section id="library-view" class="view">
+      <header class="top-bar">
+        <h1 class="app-title">My Books</h1>
+        <div class="top-bar-actions">
+          <button id="settings-button" class="icon-button" title="Settings" aria-label="Settings">&#9881;</button>
+        </div>
+      </header>
+
+      <div class="library-body">
+        <label id="upload-button" class="upload-button" for="epub-file-input">
+          + Add book
+        </label>
+        <input id="epub-file-input" type="file" accept=".epub,application/epub+zip" hidden />
+
+        <p id="library-empty-message" class="empty-message" hidden>
+          No books yet. Tap "Add book" to import an EPUB file from your iPad.
+        </p>
+
+        <div id="book-grid" class="book-grid"></div>
+      </div>
+    </section>
+
+    <!-- ===================== Reader view ===================== -->
+    <section id="reader-view" class="view" hidden>
+      <header class="top-bar">
+        <button id="back-to-library-button" class="icon-button" title="Back to library" aria-label="Back to library">&#8592;</button>
+        <h1 id="reader-title" class="app-title app-title-truncate"></h1>
+        <div class="top-bar-actions">
+          <button id="bookmark-button" class="icon-button" title="Bookmark this page" aria-label="Bookmark this page">&#9825;</button>
+          <button id="toc-button" class="icon-button" title="Contents &amp; bookmarks" aria-label="Contents and bookmarks">&#9776;</button>
+          <button id="display-settings-button" class="icon-button" title="Display settings" aria-label="Display settings">Aa</button>
+          <button id="chat-toggle-button" class="icon-button" title="Ask about this book" aria-label="Ask about this book">&#128172;</button>
+        </div>
+      </header>
+
+      <div class="reader-body">
+        <div id="viewer" class="viewer"></div>
+        <button id="tap-zone-prev" class="tap-zone tap-zone-prev" aria-label="Previous page"></button>
+        <button id="tap-zone-next" class="tap-zone tap-zone-next" aria-label="Next page"></button>
+      </div>
+
+      <!-- Contents (TOC) + bookmarks side panel -->
+      <aside id="toc-panel" class="side-panel" hidden>
+        <div class="panel-header">
+          <h2>Contents</h2>
+          <button class="icon-button panel-close" data-close="toc-panel" aria-label="Close">&#10005;</button>
+        </div>
+        <div class="panel-tabs">
+          <button id="toc-tab-contents" class="panel-tab panel-tab-active" data-tab="contents">Contents</button>
+          <button id="toc-tab-bookmarks" class="panel-tab" data-tab="bookmarks">Bookmarks</button>
+        </div>
+        <ul id="toc-list" class="panel-list"></ul>
+        <ul id="bookmark-list" class="panel-list" hidden></ul>
+      </aside>
+
+      <!-- Font/theme display settings panel -->
+      <aside id="display-settings-panel" class="side-panel" hidden>
+        <div class="panel-header">
+          <h2>Display</h2>
+          <button class="icon-button panel-close" data-close="display-settings-panel" aria-label="Close">&#10005;</button>
+        </div>
+
+        <div class="settings-group">
+          <span class="settings-label">Font size</span>
+          <div class="button-row">
+            <button id="font-size-decrease" class="pill-button" aria-label="Decrease font size">A-</button>
+            <span id="font-size-value" class="font-size-value">100%</span>
+            <button id="font-size-increase" class="pill-button" aria-label="Increase font size">A+</button>
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <span class="settings-label">Typeface</span>
+          <div class="button-row">
+            <button id="font-serif" class="pill-button" data-font="serif">Serif</button>
+            <button id="font-sans" class="pill-button" data-font="sans">Sans-serif</button>
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <span class="settings-label">Theme</span>
+          <div class="button-row">
+            <button id="theme-light" class="pill-button" data-theme="light">Light</button>
+            <button id="theme-sepia" class="pill-button" data-theme="sepia">Sepia</button>
+            <button id="theme-dark" class="pill-button" data-theme="dark">Dark</button>
+          </div>
+        </div>
+      </aside>
+
+      <!-- AI reading companion chat drawer -->
+      <aside id="chat-drawer" class="chat-drawer" hidden>
+        <div class="panel-header">
+          <h2>Ask about this book</h2>
+          <button class="icon-button panel-close" data-close="chat-drawer" aria-label="Close">&#10005;</button>
+        </div>
+        <div id="chat-messages" class="chat-messages"></div>
+        <div id="chat-status" class="chat-status" hidden></div>
+        <form id="chat-form" class="chat-form">
+          <textarea
+            id="chat-input"
+            class="chat-input"
+            rows="1"
+            placeholder="Ask a question about what you've read so far..."
+          ></textarea>
+          <button id="chat-send-button" type="submit" class="chat-send-button" aria-label="Send">&#8593;</button>
+        </form>
+      </aside>
+    </section>
+
+    <!-- ===================== Settings view ===================== -->
+    <section id="settings-view" class="view" hidden>
+      <header class="top-bar">
+        <button id="settings-back-button" class="icon-button" title="Back" aria-label="Back">&#8592;</button>
+        <h1 class="app-title">Settings</h1>
+      </header>
+
+      <div class="settings-body">
+        <form id="api-key-form" class="api-key-form">
+          <label for="api-key-input" class="settings-label">Anthropic API key</label>
+          <input
+            id="api-key-input"
+            class="api-key-input"
+            type="password"
+            autocomplete="off"
+            autocapitalize="off"
+            autocorrect="off"
+            spellcheck="false"
+            placeholder="sk-ant-..."
+          />
+          <p class="settings-hint">
+            Stored only in this browser's local storage, never sent anywhere except directly
+            to Anthropic's API. Get a key at
+            <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>.
+          </p>
+          <button type="submit" class="primary-button">Save key</button>
+          <p id="api-key-status" class="settings-status" hidden></p>
+        </form>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- Vendored libraries (plain <script> tags, not modules - both epub.js
+       and JSZip are old-style "UMD" builds that attach themselves to
+       `window` rather than using ES module `export`). Order matters:
+       epub.js expects `window.JSZip` to already exist. -->
+  <script src="vendor/jszip.min.js"></script>
+  <script src="vendor/epub.min.js"></script>
+
+  <!-- Our own code, as an ES module entry point. -->
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

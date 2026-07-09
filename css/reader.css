@@ -1,0 +1,47 @@
+/* Reader view: the epub.js viewport, tap zones for page turns, and the
+   display-settings panel controls (side-panel/panel-list base styles live
+   in base.css). */
+
+.reader-body {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+}
+
+.viewer {
+  position: absolute;
+  inset: 0;
+}
+
+/* epub.js renders the book into an iframe inside .viewer; it fills
+   whatever size we give the container above. */
+.viewer iframe {
+  border: none;
+}
+
+.tap-zone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 15%;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  z-index: 1;
+}
+
+.tap-zone-prev {
+  left: 0;
+}
+
+.tap-zone-next {
+  right: 0;
+}
+
+.font-size-value {
+  min-width: 48px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
