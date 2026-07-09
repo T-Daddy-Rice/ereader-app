@@ -31,6 +31,24 @@ export const SUMMARY_MAX_TOKENS = 512;
 // small since this whole history gets resent on every single message.
 export const CHAT_HISTORY_TURNS = 6;
 
+// Claude Haiku 4.5's context window is 200,000 tokens total (the prompt
+// you send, not counting the reply) - much smaller than Opus's 1M, which
+// is why a chat message that used to fit fine can suddenly fail with
+// "prompt is too long" after switching models. MAX_CONTEXT_TOKENS is the
+// ceiling context-builder.js budgets the current chapter + summaries +
+// history under, well below 200,000 so that its character-based token
+// estimate (which isn't Anthropic's real tokenizer, just a close
+// approximation), the system prompt, and normal variance all have room to
+// spare. If you ever change MODEL_ID to a model with a different context
+// window, update this to match (keeping a similar safety margin below it).
+export const MAX_CONTEXT_TOKENS = 150000;
+
+// Ceiling on how much of a single chapter's text gets sent, so one
+// unusually large chapter - or an EPUB that wasn't split into multiple
+// files the way most are - can't consume the entire context budget by
+// itself and crowd out everything else (or blow the limit on its own).
+export const MAX_CHAPTER_TOKENS = 100000;
+
 // IndexedDB database name/version. Bump DB_VERSION and add an upgrade path
 // in db.js if you ever change the object store shapes below.
 export const DB_NAME = 'ereader-db';
