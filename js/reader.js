@@ -34,13 +34,19 @@ const themeButtons = {
   sepia: document.getElementById('theme-sepia'),
   dark: document.getElementById('theme-dark'),
 };
+const layoutButtons = {
+  single: document.getElementById('layout-single'),
+  two: document.getElementById('layout-two'),
+};
 
 const chatDrawer = document.getElementById('chat-drawer');
 
 const ALL_PANELS = [tocPanel, displaySettingsPanel, chatDrawer];
 
 const DISPLAY_SETTINGS_KEY = 'ereader.displaySettings';
-const DEFAULT_DISPLAY_SETTINGS = { fontSizePercent: 100, fontFamily: 'serif', theme: 'light' };
+// layout: 'single' always shows one page; 'two' shows a two-page spread
+// when there's enough width (e.g. landscape), one page otherwise.
+const DEFAULT_DISPLAY_SETTINGS = { fontSizePercent: 100, fontFamily: 'serif', theme: 'light', layout: 'single' };
 
 const READING_THEMES = {
   light: { body: { background: '#ffffff', color: '#1c1c1e' } },
@@ -114,6 +120,9 @@ export function initReader({ onBack, onChatToggle: onChatToggleCallback }) {
   fontSansButton.addEventListener('click', () => setFontFamily('sans'));
   Object.entries(themeButtons).forEach(([name, button]) => {
     button.addEventListener('click', () => setTheme(name));
+  });
+  Object.entries(layoutButtons).forEach(([name, button]) => {
+    button.addEventListener('click', () => setLayout(name));
   });
 
   updateDisplaySettingsUI();
@@ -217,7 +226,7 @@ export async function openBook(bookId) {
     width: '100%',
     height: '100%',
     flow: 'paginated',
-    spread: 'auto',
+    spread: displaySettings.layout === 'two' ? 'auto' : 'none',
     // The default manager only handles clicks/keyboard. The continuous
     // manager has epub.js's built-in touch-swipe ("snap to page") support -
     // still shows one page at a time since flow is 'paginated', but swiping
@@ -425,6 +434,7 @@ function applyDisplaySettingsToRendition() {
   rendition.themes.select(displaySettings.theme);
   rendition.themes.fontSize(`${displaySettings.fontSizePercent}%`);
   rendition.themes.font(displaySettings.fontFamily === 'serif' ? 'serif' : 'sans-serif');
+  rendition.spread(displaySettings.layout === 'two' ? 'auto' : 'none');
 }
 
 function updateDisplaySettingsUI() {
@@ -433,6 +443,9 @@ function updateDisplaySettingsUI() {
   fontSansButton.classList.toggle('pill-button-active', displaySettings.fontFamily === 'sans');
   Object.entries(themeButtons).forEach(([name, button]) => {
     button.classList.toggle('pill-button-active', displaySettings.theme === name);
+  });
+  Object.entries(layoutButtons).forEach(([name, button]) => {
+    button.classList.toggle('pill-button-active', displaySettings.layout === name);
   });
 }
 
@@ -453,6 +466,13 @@ function setFontFamily(fontFamily) {
 
 function setTheme(theme) {
   displaySettings.theme = theme;
+  saveDisplaySettings();
+  updateDisplaySettingsUI();
+  applyDisplaySettingsToRendition();
+}
+
+function setLayout(layout) {
+  displaySettings.layout = layout;
   saveDisplaySettings();
   updateDisplaySettingsUI();
   applyDisplaySettingsToRendition();
