@@ -6,7 +6,7 @@
 // needed for it.
 
 import { getBook, getProgress, updateProgress, addBookmark, getBookmarks, deleteBookmark } from './db.js';
-import { ensureSummariesUpTo } from './summarizer.js';
+import { ensureSummariesUpTo, getChapterSegments, segmentIndexForCfi, clearSegmentCache } from './summarizer.js';
 
 const viewerEl = document.getElementById('viewer');
 const readerTitleEl = document.getElementById('reader-title');
@@ -252,6 +252,7 @@ export function closeBook() {
   viewerEl.innerHTML = '';
   tocList.innerHTML = '';
   bookmarkList.innerHTML = '';
+  clearSegmentCache();
 }
 
 // Read by chat.js / context-builder.js to know what book/position to build
@@ -263,6 +264,8 @@ export function getReaderState() {
     bookId: currentBookId,
     currentSpineIndex: currentProgress.currentSpineIndex,
     furthestSpineIndex: currentProgress.furthestSpineIndex,
+    currentSegmentIndex: currentProgress.currentSegmentIndex,
+    furthestSegmentIndex: currentProgress.furthestSegmentIndex,
   };
 }
 
@@ -277,19 +280,58 @@ function handleRelocated(location) {
   const isNewFurthest = spineIndex > wasFurthest;
 
   const updates = { currentCfi: cfi, currentSpineIndex: spineIndex };
-  if (isNewFurthest) updates.furthestSpineIndex = spineIndex;
+  if (isNewFurthest) {
+    updates.furthestSpineIndex = spineIndex;
+    // Starting fresh in a spine item we've never reached before - haven't
+    // read any of its segments yet (see getChapterSegments() in
+    // summarizer.js for what a "segment" is - only matters for the rare
+    // oversized spine item that's been split into multiple chapters).
+    updates.furthestSegmentIndex = 0;
+  }
 
   updateProgress(currentBookId, updates).then((saved) => {
     currentProgress = saved;
+
     if (isNewFurthest) {
       // Fire-and-forget: summarize newly-reached chapters in the
       // background so they're ready by the time chat needs them. Any
       // failure here (e.g. no API key yet) is just logged - it isn't the
       // reader's job to surface API errors, only chat's.
-      ensureSummariesUpTo(book, currentBookId, saved.furthestSpineIndex).catch((error) => {
+      ensureSummariesUpTo(
+        book,
+        currentBookId,
+        saved.currentSpineIndex,
+        saved.furthestSpineIndex,
+        saved.furthestSegmentIndex
+      ).catch((error) => {
         console.error('Background chapter summarization failed', error);
       });
     }
+
+    // Figure out which segment (only meaningful if this spine item was
+    // split into multiple heading-marked chapters - see summarizer.js)
+    // the reader's current position falls in. Same fire-and-forget
+    // tolerance as summarization above - getChapterSegments() is cheap
+    // for normal chapters and memoized after the first touch for split
+    // ones, so this doesn't slow page turns down.
+    getChapterSegments(book, spineIndex)
+      .then((segments) => {
+        if (segments.length <= 1) return; // not a split chapter - nothing to track
+        const segmentIndex = segmentIndexForCfi(book, segments, cfi);
+        const segUpdates = { currentSegmentIndex: segmentIndex };
+        // Only the actual reading frontier's furthest-segment tracking
+        // should move - rereading an earlier chapter shouldn't touch it.
+        if (spineIndex === saved.furthestSpineIndex && segmentIndex > (saved.furthestSegmentIndex || 0)) {
+          segUpdates.furthestSegmentIndex = segmentIndex;
+        }
+        return updateProgress(currentBookId, segUpdates);
+      })
+      .then((savedSeg) => {
+        if (savedSeg) currentProgress = savedSeg;
+      })
+      .catch((error) => {
+        console.error('Segment position tracking failed', error);
+      });
   });
 
   updateBookmarkButtonState();

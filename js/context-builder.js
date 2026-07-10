@@ -10,18 +10,9 @@
 // structurally, not just by asking the model nicely in the system prompt
 // (though we do that too, as a second layer).
 
-import { getSummariesUpTo, getChatHistory } from './db.js';
-import { getChapterText, ensureSummaryForChapter } from './summarizer.js';
-import { CHAT_HISTORY_TURNS, MAX_CONTEXT_TOKENS, MAX_CHAPTER_TOKENS } from './constants.js';
-
-// Rough token estimate used only for budgeting how much context to send -
-// not Anthropic's real tokenizer (that would mean an extra API call before
-// every message), but English prose averages close to 4 characters per
-// token, which combined with MAX_CONTEXT_TOKENS's safety margin is close
-// enough to reliably stay under the model's real context window.
-function estimateTokens(text) {
-  return Math.ceil((text || '').length / 4);
-}
+import { getSummariesUpTo, getSegmentSummariesForChapter, getChatHistory } from './db.js';
+import { getChapterSegments, ensureSummaryForChapter, ensureSummaryForSegment } from './summarizer.js';
+import { CHAT_HISTORY_TURNS, MAX_CONTEXT_TOKENS, MAX_CHAPTER_TOKENS, estimateTokens } from './constants.js';
 
 const SYSTEM_PROMPT = [
   "You are a reading companion built into the reader's personal e-reader app.",
@@ -36,9 +27,14 @@ const SYSTEM_PROMPT = [
 ].join(' ');
 
 // `readerState` is whatever reader.js's getReaderState() returns:
-// { book, bookId, currentSpineIndex, furthestSpineIndex }.
+// { book, bookId, currentSpineIndex, furthestSpineIndex, currentSegmentIndex,
+// furthestSegmentIndex }. The segment fields only matter for the rare
+// spine item that summarizer.js's getChapterSegments() has split into
+// multiple heading-marked chapters (see that file for why) - for a normal
+// book currentSegmentIndex is always 0, and this whole module behaves
+// exactly as it did before segments existed.
 export async function buildChatRequest(readerState) {
-  const { book, bookId, currentSpineIndex, furthestSpineIndex } = readerState;
+  const { book, bookId, currentSpineIndex, furthestSpineIndex, currentSegmentIndex } = readerState;
 
   // Defensive catch-up: reader.js already triggers this in the background
   // on page turns, but if the reader opens chat before that's finished
@@ -51,7 +47,24 @@ export async function buildChatRequest(readerState) {
   // will be retried the next time it's needed. Same tolerance reader.js
   // already applies to its own background summarization pass.
   for (let spineIndex = 0; spineIndex <= furthestSpineIndex; spineIndex++) {
-    if (spineIndex === currentSpineIndex) continue; // gets full text instead, below
+    if (spineIndex === currentSpineIndex) {
+      // Only the parts of THIS chapter already read (0..currentSegmentIndex-1)
+      // are safe to summarize - never the part being read right now, or
+      // anything after it. No-op for a normal chapter, where
+      // currentSegmentIndex is always 0.
+      if (currentSegmentIndex > 0) {
+        try {
+          const segments = await getChapterSegments(book, spineIndex);
+          for (const segment of segments) {
+            if (segment.segmentIndex >= currentSegmentIndex) break;
+            await ensureSummaryForSegment(book, bookId, spineIndex, segment);
+          }
+        } catch (error) {
+          console.error('Could not summarize earlier parts of the current chapter, skipping for this context', error);
+        }
+      }
+      continue; // gets full text instead, below
+    }
     try {
       await ensureSummaryForChapter(book, bookId, spineIndex);
     } catch (error) {
@@ -59,14 +72,22 @@ export async function buildChatRequest(readerState) {
     }
   }
 
-  let currentChapterText = await getChapterText(book, currentSpineIndex);
+  const segments = await getChapterSegments(book, currentSpineIndex);
+  const isSplitChapter = segments.length > 1;
+  // Defensive fallback in case currentSegmentIndex is somehow stale/out of
+  // range (e.g. the book changed between when progress was saved and now) -
+  // fall back to the last known segment rather than crashing on undefined.
+  const activeSegment = segments[currentSegmentIndex] || segments[segments.length - 1];
+
+  let currentChapterText = activeSegment.text;
   let chapterTruncated = false;
   if (estimateTokens(currentChapterText) > MAX_CHAPTER_TOKENS) {
     // Either a genuinely huge chapter, or (more likely) an EPUB that
     // wasn't split into multiple spine items the way most are - e.g. the
-    // whole book in one file. Truncate rather than blow the model's
-    // context window; the note below tells the AI (so it doesn't imply
-    // it read the whole thing) that this happened.
+    // whole book in one file with no heading tags to split it on. Truncate
+    // rather than blow the model's context window; the note below tells
+    // the AI (so it doesn't imply it read the whole thing) that this
+    // happened.
     currentChapterText = currentChapterText.slice(0, MAX_CHAPTER_TOKENS * 4);
     chapterTruncated = true;
   }
@@ -79,26 +100,45 @@ export async function buildChatRequest(readerState) {
     (summary) => summary.spineIndex !== currentSpineIndex && summary.summaryText
   );
 
-  // Prefer the most recently read chapters' summaries when there isn't
-  // room for all of them - they're the most likely to matter for whatever
-  // the reader's asking about right now. Walk newest-to-oldest and stop
-  // once one doesn't fit; everything before that point is even older, so
-  // there's no reason to keep checking further back.
-  const includedSummaries = [];
+  // Earlier heading-marked parts of the chapter the reader's currently in
+  // (only non-empty for a split chapter) - these are the most relevant
+  // "prior" context there is, since they're literally the same chapter,
+  // so they go at the end of the combined list below (highest priority to
+  // keep - see the trimming loop).
+  const currentChapterPriorSummaries =
+    currentSegmentIndex > 0
+      ? (await getSegmentSummariesForChapter(bookId, currentSpineIndex, currentSegmentIndex)).filter(
+          (summary) => summary.summaryText
+        )
+      : [];
+
+  const combinedLines = [
+    ...allSummaries.map((summary) => `Chapter ${summary.spineIndex + 1} summary: ${summary.summaryText}`),
+    ...currentChapterPriorSummaries.map((summary) => `Earlier part of this chapter: ${summary.summaryText}`),
+  ];
+
+  // Prefer the most recently read material when there isn't room for all
+  // of it - it's the most likely to matter for whatever the reader's
+  // asking about right now. Walk newest-to-oldest and stop once one
+  // doesn't fit; everything before that point is even older, so there's
+  // no reason to keep checking further back.
+  const includedLines = [];
   let summariesOmitted = false;
-  for (let i = allSummaries.length - 1; i >= 0; i--) {
-    const summary = allSummaries[i];
-    const line = `Chapter ${summary.spineIndex + 1} summary: ${summary.summaryText}`;
-    const lineTokens = estimateTokens(line);
+  for (let i = combinedLines.length - 1; i >= 0; i--) {
+    const lineTokens = estimateTokens(combinedLines[i]);
     if (lineTokens > remainingBudget) {
       summariesOmitted = true;
       break;
     }
-    includedSummaries.push(line);
+    includedLines.push(combinedLines[i]);
     remainingBudget -= lineTokens;
   }
-  includedSummaries.reverse(); // back to chapter order
-  const priorSummaries = includedSummaries.join('\n\n');
+  includedLines.reverse(); // back to chronological order
+  const priorSummaries = includedLines.join('\n\n');
+
+  const currentChapterLabel = isSplitChapter
+    ? "Full text of the current part of the book you're reading:"
+    : `Full text of the current chapter (chapter ${currentSpineIndex + 1}):`;
 
   const contextPreamble = [
     priorSummaries
@@ -108,7 +148,7 @@ export async function buildChatRequest(readerState) {
             : ''
         }`
       : "This is the first chapter - there's nothing prior to summarize yet.",
-    `Full text of the current chapter (chapter ${currentSpineIndex + 1}):\n\n${currentChapterText}${
+    `${currentChapterLabel}\n\n${currentChapterText}${
       chapterTruncated
         ? '\n\n[This chapter is very long and was cut off here to fit - treat anything after this point as unknown rather than assuming it matches the rest.]'
         : ''

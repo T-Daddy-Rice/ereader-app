@@ -47,7 +47,30 @@ export const MAX_CONTEXT_TOKENS = 150000;
 // unusually large chapter - or an EPUB that wasn't split into multiple
 // files the way most are - can't consume the entire context budget by
 // itself and crowd out everything else (or blow the limit on its own).
+// Also doubles as the trigger for heading-based chapter splitting (see
+// summarizer.js's getChapterSegments()) - a spine item only gets scanned
+// for heading tags if its text is bigger than this in the first place.
 export const MAX_CHAPTER_TOKENS = 100000;
+
+// When a spine item is oversized (see above), summarizer.js looks for
+// heading tags (h1-h6) that mark real chapter breaks inside it - common in
+// EPUBs (e.g. from Project Gutenberg) that put the whole book in one file.
+// A heading level only counts as a chapter marker if it appears at least
+// this many times; otherwise there's nothing to split on and the file is
+// truncated as a single oversized chapter instead.
+export const MIN_SPLIT_HEADING_COUNT = 2;
+
+// Rough token estimate used for budgeting how much context to send - not
+// Anthropic's real tokenizer (that would mean an extra API call before
+// every message), but English prose averages close to 4 characters per
+// token, which combined with MAX_CONTEXT_TOKENS's safety margin is close
+// enough to reliably stay under the model's real context window. Shared
+// by context-builder.js (budgeting chat context) and summarizer.js
+// (guarding chapter-summary requests against the same oversized-file
+// problem).
+export function estimateTokens(text) {
+  return Math.ceil((text || '').length / 4);
+}
 
 // IndexedDB database name/version. Bump DB_VERSION and add an upgrade path
 // in db.js if you ever change the object store shapes below.

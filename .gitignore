@@ -1,1 +1,4 @@
 .DS_Store
+
+# Personal library / test books - never belong in a public repo (copyright).
+*.epub

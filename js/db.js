@@ -141,18 +141,26 @@ export async function deleteBook(id) {
 // Reading progress (current position + furthest position ever reached)
 // ---------------------------------------------------------------------
 
+// currentSegmentIndex/furthestSegmentIndex track position *within* the
+// current spine item, for the rare case where summarizer.js has split it
+// into multiple heading-marked segments (see getChapterSegments() there).
+// For a normal spine item these just stay 0 and mean nothing extra.
+const PROGRESS_DEFAULTS = {
+  currentCfi: null,
+  currentSpineIndex: 0,
+  furthestSpineIndex: 0,
+  currentSegmentIndex: 0,
+  furthestSegmentIndex: 0,
+  lastReadAt: null,
+};
+
 export async function getProgress(bookId) {
   const store = await getStore('progress');
   const record = await promisifyRequest(store.get(bookId));
-  return (
-    record || {
-      bookId,
-      currentCfi: null,
-      currentSpineIndex: 0,
-      furthestSpineIndex: 0,
-      lastReadAt: null,
-    }
-  );
+  // Spread defaults first so a record saved before currentSegmentIndex/
+  // furthestSegmentIndex existed still comes back with them set to 0,
+  // instead of undefined.
+  return { ...PROGRESS_DEFAULTS, bookId, ...record };
 }
 
 // Merges `updates` into the existing progress record for this book and
@@ -191,21 +199,26 @@ export async function deleteBookmark(id) {
 // Chapter summaries (lazily generated, cached forever per content hash)
 // ---------------------------------------------------------------------
 
-function summaryId(bookId, spineIndex) {
-  return `${bookId}:${spineIndex}`;
+// segmentIndex distinguishes summaries of different heading-marked pieces
+// within one oversized spine item (see summarizer.js's getChapterSegments())
+// - defaults to 0, which is also what every normal (unsplit) chapter uses,
+// so a normal book's summaries look exactly as they did before this existed.
+function summaryId(bookId, spineIndex, segmentIndex = 0) {
+  return `${bookId}:${spineIndex}:${segmentIndex}`;
 }
 
-export async function getSummary(bookId, spineIndex) {
+export async function getSummary(bookId, spineIndex, segmentIndex = 0) {
   const store = await getStore('summaries');
-  return promisifyRequest(store.get(summaryId(bookId, spineIndex)));
+  return promisifyRequest(store.get(summaryId(bookId, spineIndex, segmentIndex)));
 }
 
-export async function saveSummary(bookId, spineIndex, contentHash, summaryText) {
+export async function saveSummary(bookId, spineIndex, contentHash, summaryText, segmentIndex = 0) {
   const store = await getStore('summaries', 'readwrite');
   const record = {
-    id: summaryId(bookId, spineIndex),
+    id: summaryId(bookId, spineIndex, segmentIndex),
     bookId,
     spineIndex,
+    segmentIndex,
     contentHash,
     summaryText,
     generatedAt: Date.now(),
@@ -218,14 +231,32 @@ export async function saveSummary(bookId, spineIndex, contentHash, summaryText) 
 // (inclusive - furthestSpineIndex is a chapter the reader has actually
 // reached), in spine order. Any chapter not yet summarized is simply
 // missing from the result - it's the caller's job (see summarizer.js) to
-// fill gaps in.
+// fill gaps in. For a spine item that's been split into segments, this
+// returns ALL of its segment summaries (it's only ever called for spine
+// items the reader has fully passed, so every segment is safe to include)
+// - context-builder.js's own filter already excludes the current spine
+// index from this list, so a still-in-progress split chapter can't leak
+// through here.
 export async function getSummariesUpTo(bookId, furthestSpineIndex) {
   const store = await getStore('summaries');
   const index = store.index('bookId');
   const all = await promisifyRequest(index.getAll(IDBKeyRange.only(bookId)));
   return all
     .filter((s) => s.spineIndex <= furthestSpineIndex)
-    .sort((a, b) => a.spineIndex - b.spineIndex);
+    .sort((a, b) => a.spineIndex - b.spineIndex || a.segmentIndex - b.segmentIndex);
+}
+
+// Returns cached summaries for segments [0, upToSegmentIndex) of ONE
+// spine item - used for the segments the reader has already read within
+// the chapter they're currently in (see context-builder.js), which
+// getSummariesUpTo() above deliberately excludes.
+export async function getSegmentSummariesForChapter(bookId, spineIndex, upToSegmentIndex) {
+  const store = await getStore('summaries');
+  const index = store.index('bookId');
+  const all = await promisifyRequest(index.getAll(IDBKeyRange.only(bookId)));
+  return all
+    .filter((s) => s.spineIndex === spineIndex && s.segmentIndex < upToSegmentIndex)
+    .sort((a, b) => a.segmentIndex - b.segmentIndex);
 }
 
 // ---------------------------------------------------------------------
