@@ -119,16 +119,21 @@ export async function getChapterSegments(book, spineIndex) {
 
   const fullText = (contents.textContent || '').replace(/\s+/g, ' ').trim();
 
-  let segments;
-  if (estimateTokens(fullText) <= MAX_CHAPTER_TOKENS) {
-    segments = [{ segmentIndex: 0, headingCfi: null, text: fullText }];
-  } else {
-    const level = detectHeadingSplitLevel(contents);
-    // No consistent heading markers found - nothing to split on, so this
-    // stays one (oversized) segment; context-builder.js's existing
-    // truncation logic is what keeps it from blowing the context budget.
-    segments = level ? extractHeadingSegments(section, contents, level) : [{ segmentIndex: 0, headingCfi: null, text: fullText }];
-  }
+  // Always check for chapter-marking headings, not just when the spine
+  // item is already oversized. Some EPUBs (e.g. Project Gutenberg's,
+  // which chunk the book by file size rather than by chapter) bundle
+  // several real chapters into one spine item that still comes in under
+  // MAX_CHAPTER_TOKENS - a book split into two ~150k-character chunks of
+  // six-ish chapters each still needs per-chapter segments for the
+  // no-spoiler boundary (see context-builder.js), even though neither
+  // chunk is "oversized" on its own. detectHeadingSplitLevel()'s
+  // MIN_SPLIT_HEADING_COUNT check already guards against splitting a
+  // normal single chapter that just happens to contain a repeated
+  // subheading.
+  const level = detectHeadingSplitLevel(contents);
+  const segments = level
+    ? extractHeadingSegments(section, contents, level)
+    : [{ segmentIndex: 0, headingCfi: null, text: fullText }];
 
   section.unload();
   segmentCache.set(spineIndex, segments);
