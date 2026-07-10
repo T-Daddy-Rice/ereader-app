@@ -94,6 +94,7 @@ let displaySettings = loadDisplaySettings();
 let selectModeActive = false;
 let pendingCfiRange = null;
 let pendingContents = null;
+let selectionPollTimer = null;
 
 function loadDisplaySettings() {
   try {
@@ -575,14 +576,54 @@ async function updateBookmarkButtonState() {
 // disables the overlay's touch-catching instead, so normal iOS text
 // selection reaches the book underneath; epub.js emits a 'selected' event
 // (with the CFI range of what was selected) once that settles.
+//
+// On iOS Safari, that event turned out not to be reliable in practice - the
+// native selection UI (blue highlight, drag handles) shows up fine, but the
+// 'selectionchange' event epub.js's own selection handling depends on
+// (registered on the book iframe's own document) doesn't reliably fire or
+// propagate up to us there, the same broad class of issue as the earlier
+// touch/page-turn bug inside this sandboxed iframe. Rather than depending
+// on that event alone, pollForSelection() below actively polls the
+// Selection API's own state while select mode is on - since the native
+// selection UI itself is driven by that same Selection object, this works
+// regardless of whether the event that's supposed to announce it does.
 // ---------------------------------------------------------------------
+
+const SELECTION_POLL_INTERVAL_MS = 400;
 
 function setSelectMode(active) {
   selectModeActive = active;
   pageTurnOverlay.classList.toggle('page-turn-overlay-disabled', active);
   selectTextButton.classList.toggle('icon-button-active', active);
-  if (!active) {
+  if (active) {
+    stopSelectionPolling();
+    selectionPollTimer = setInterval(pollForSelection, SELECTION_POLL_INTERVAL_MS);
+  } else {
+    stopSelectionPolling();
     clearPendingSelection();
+  }
+}
+
+function stopSelectionPolling() {
+  if (selectionPollTimer) {
+    clearInterval(selectionPollTimer);
+    selectionPollTimer = null;
+  }
+}
+
+function pollForSelection() {
+  if (!rendition || highlightActionBar.hidden === false) return; // already showing one
+  for (const contents of rendition.getContents()) {
+    const selection = contents.window.getSelection();
+    if (!selection || selection.rangeCount === 0) continue;
+    const range = selection.getRangeAt(0);
+    if (range.collapsed) continue;
+    try {
+      handleSelected(contents.cfiFromRange(range), contents);
+    } catch (error) {
+      console.error('Could not compute a CFI for the current selection', error);
+    }
+    return;
   }
 }
 
