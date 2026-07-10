@@ -39,6 +39,11 @@ function openDB() {
         store.createIndex('bookId', 'bookId', { unique: false });
       }
 
+      if (!db.objectStoreNames.contains('highlights')) {
+        const store = db.createObjectStore('highlights', { keyPath: 'id', autoIncrement: true });
+        store.createIndex('bookId', 'bookId', { unique: false });
+      }
+
       if (!db.objectStoreNames.contains('summaries')) {
         // id is a composite string key "<bookId>:<spineIndex>" so a summary
         // for a given chapter of a given book can be looked up directly.
@@ -104,7 +109,7 @@ export async function deleteBook(id) {
   // Clean up everything associated with this book, not just the book
   // record itself, so deleting a book doesn't leave orphaned data behind.
   const db = await openDB();
-  const storeNames = ['books', 'progress', 'bookmarks', 'summaries', 'chatHistory'];
+  const storeNames = ['books', 'progress', 'bookmarks', 'highlights', 'summaries', 'chatHistory'];
   const transaction = db.transaction(storeNames, 'readwrite');
 
   transaction.objectStore('books').delete(id);
@@ -114,6 +119,16 @@ export async function deleteBook(id) {
   const bookmarkIndex = transaction.objectStore('bookmarks').index('bookId');
   const bookmarkCursorRequest = bookmarkIndex.openCursor(IDBKeyRange.only(id));
   bookmarkCursorRequest.onsuccess = (event) => {
+    const cursor = event.target.result;
+    if (cursor) {
+      cursor.delete();
+      cursor.continue();
+    }
+  };
+
+  const highlightIndex = transaction.objectStore('highlights').index('bookId');
+  const highlightCursorRequest = highlightIndex.openCursor(IDBKeyRange.only(id));
+  highlightCursorRequest.onsuccess = (event) => {
     const cursor = event.target.result;
     if (cursor) {
       cursor.delete();
@@ -145,12 +160,18 @@ export async function deleteBook(id) {
 // current spine item, for the rare case where summarizer.js has split it
 // into multiple heading-marked segments (see getChapterSegments() there).
 // For a normal spine item these just stay 0 and mean nothing extra.
+//
+// locationsData caches book.locations.save() (epub.js's percentage<->CFI
+// mapping table, built once by walking the whole book) so the progress
+// slider in reader.js doesn't have to regenerate it - a multi-second scan -
+// every time the book is opened.
 const PROGRESS_DEFAULTS = {
   currentCfi: null,
   currentSpineIndex: 0,
   furthestSpineIndex: 0,
   currentSegmentIndex: 0,
   furthestSegmentIndex: 0,
+  locationsData: null,
   lastReadAt: null,
 };
 
@@ -192,6 +213,28 @@ export async function getBookmarks(bookId) {
 
 export async function deleteBookmark(id) {
   const store = await getStore('bookmarks', 'readwrite');
+  return promisifyRequest(store.delete(id));
+}
+
+// ---------------------------------------------------------------------
+// Highlights
+// ---------------------------------------------------------------------
+
+export async function addHighlight(bookId, cfiRange, text) {
+  const store = await getStore('highlights', 'readwrite');
+  const record = { bookId, cfiRange, text: text || '', createdAt: Date.now() };
+  return promisifyRequest(store.add(record));
+}
+
+export async function getHighlights(bookId) {
+  const store = await getStore('highlights');
+  const index = store.index('bookId');
+  const highlights = await promisifyRequest(index.getAll(IDBKeyRange.only(bookId)));
+  return highlights.sort((a, b) => a.createdAt - b.createdAt);
+}
+
+export async function deleteHighlight(id) {
+  const store = await getStore('highlights', 'readwrite');
   return promisifyRequest(store.delete(id));
 }
 

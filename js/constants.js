@@ -75,7 +75,7 @@ export function estimateTokens(text) {
 // IndexedDB database name/version. Bump DB_VERSION and add an upgrade path
 // in db.js if you ever change the object store shapes below.
 export const DB_NAME = 'ereader-db';
-export const DB_VERSION = 1;
+export const DB_VERSION = 2;
 
 // localStorage key for the Anthropic API key. Never commit an actual key -
 // this only names where the browser stores the one you paste into Settings.

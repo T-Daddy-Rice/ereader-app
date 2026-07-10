@@ -5,23 +5,43 @@
 // `ePub` is a global from vendor/epub.min.js (see index.html); no import
 // needed for it.
 
-import { getBook, getProgress, updateProgress, addBookmark, getBookmarks, deleteBookmark } from './db.js';
+import {
+  getBook,
+  getProgress,
+  updateProgress,
+  addBookmark,
+  getBookmarks,
+  deleteBookmark,
+  addHighlight,
+  getHighlights,
+  deleteHighlight,
+} from './db.js';
 import { ensureSummariesUpTo, getChapterSegments, segmentIndexForCfi, clearSegmentCache } from './summarizer.js';
 
 const viewerEl = document.getElementById('viewer');
 const readerTitleEl = document.getElementById('reader-title');
 const backButton = document.getElementById('back-to-library-button');
+const selectTextButton = document.getElementById('select-text-button');
 const bookmarkButton = document.getElementById('bookmark-button');
 const tocButton = document.getElementById('toc-button');
 const displaySettingsButton = document.getElementById('display-settings-button');
 const chatToggleButton = document.getElementById('chat-toggle-button');
 const pageTurnOverlay = document.getElementById('page-turn-overlay');
 
+const progressSlider = document.getElementById('progress-slider');
+const progressLabel = document.getElementById('progress-label');
+
+const highlightActionBar = document.getElementById('highlight-action-bar');
+const highlightCancelButton = document.getElementById('highlight-cancel-button');
+const highlightSaveButton = document.getElementById('highlight-save-button');
+
 const tocPanel = document.getElementById('toc-panel');
 const tocList = document.getElementById('toc-list');
 const bookmarkList = document.getElementById('bookmark-list');
+const highlightList = document.getElementById('highlight-list');
 const tocTabContents = document.getElementById('toc-tab-contents');
 const tocTabBookmarks = document.getElementById('toc-tab-bookmarks');
+const tocTabHighlights = document.getElementById('toc-tab-highlights');
 
 const displaySettingsPanel = document.getElementById('display-settings-panel');
 const fontSizeValue = document.getElementById('font-size-value');
@@ -54,6 +74,13 @@ const READING_THEMES = {
   dark: { background: '#1c1c1e', color: '#d8d8dc' },
 };
 
+// Single color, applied via epub.js's rendition.annotations.highlight() -
+// renders as a translucent mark over the selected text inside the book's
+// iframe. 'multiply' blend mode keeps it readable against light/sepia/dark
+// reading themes without needing per-theme highlight colors.
+const HIGHLIGHT_CLASSNAME = 'reader-highlight';
+const HIGHLIGHT_STYLES = { fill: '#ffd60a', 'fill-opacity': '0.35', 'mix-blend-mode': 'multiply' };
+
 let book = null;
 let rendition = null;
 let currentBookId = null;
@@ -61,6 +88,12 @@ let currentProgress = null;
 let backCallback = null;
 let onChatToggle = null;
 let displaySettings = loadDisplaySettings();
+
+// Select-mode / highlighting state - see setSelectMode() and the 'selected'
+// rendition listener registered in openBook().
+let selectModeActive = false;
+let pendingCfiRange = null;
+let pendingContents = null;
 
 function loadDisplaySettings() {
   try {
@@ -103,8 +136,22 @@ export function initReader({ onBack, onChatToggle: onChatToggleCallback }) {
 
   tocTabContents.addEventListener('click', () => switchTocTab('contents'));
   tocTabBookmarks.addEventListener('click', () => switchTocTab('bookmarks'));
+  tocTabHighlights.addEventListener('click', () => switchTocTab('highlights'));
 
   bookmarkButton.addEventListener('click', toggleBookmarkAtCurrentPosition);
+
+  selectTextButton.addEventListener('click', () => setSelectMode(!selectModeActive));
+  highlightCancelButton.addEventListener('click', cancelPendingHighlight);
+  highlightSaveButton.addEventListener('click', saveHighlight);
+
+  progressSlider.addEventListener('input', () => {
+    progressLabel.textContent = `${Math.round(progressSlider.value / 10)}%`;
+  });
+  progressSlider.addEventListener('change', () => {
+    if (!book || !book.locations || !book.locations.total) return;
+    const cfi = book.locations.cfiFromPercentage(progressSlider.value / 1000);
+    rendition.display(cfi);
+  });
 
   initPageTurnOverlay();
 
@@ -189,11 +236,12 @@ function closeAllPanels() {
 }
 
 function switchTocTab(tab) {
-  const showContents = tab === 'contents';
-  tocList.hidden = !showContents;
-  bookmarkList.hidden = showContents;
-  tocTabContents.classList.toggle('panel-tab-active', showContents);
-  tocTabBookmarks.classList.toggle('panel-tab-active', !showContents);
+  tocList.hidden = tab !== 'contents';
+  bookmarkList.hidden = tab !== 'bookmarks';
+  highlightList.hidden = tab !== 'highlights';
+  tocTabContents.classList.toggle('panel-tab-active', tab === 'contents');
+  tocTabBookmarks.classList.toggle('panel-tab-active', tab === 'bookmarks');
+  tocTabHighlights.classList.toggle('panel-tab-active', tab === 'highlights');
 }
 
 // ---------------------------------------------------------------------
@@ -231,14 +279,25 @@ export async function openBook(bookId) {
   await rendition.display(currentProgress.currentCfi || undefined);
 
   rendition.on('relocated', handleRelocated);
+  rendition.on('selected', handleSelected);
 
   await buildTocList();
   await refreshBookmarkList();
+  await loadHighlights();
   updateBookmarkButtonState();
+
+  // Fire-and-forget: the percentage<->CFI table takes a real scan of the
+  // whole book to build the first time (see ensureLocations()), so don't
+  // block opening the book on it - the slider just stays disabled
+  // ("Calculating...") until it resolves.
+  ensureLocations(book, bookId, currentProgress).catch((error) => {
+    console.error('Could not build the progress slider location table', error);
+  });
 }
 
 export function closeBook() {
   closeAllPanels();
+  setSelectMode(false); // also clears any pending selection/action bar
   if (rendition) {
     rendition.destroy();
     rendition = null;
@@ -252,7 +311,52 @@ export function closeBook() {
   viewerEl.innerHTML = '';
   tocList.innerHTML = '';
   bookmarkList.innerHTML = '';
+  highlightList.innerHTML = '';
+  progressSlider.disabled = true;
+  progressSlider.value = 0;
+  progressLabel.textContent = 'Calculating…';
   clearSegmentCache();
+}
+
+// ---------------------------------------------------------------------
+// Whole-book progress slider
+// ---------------------------------------------------------------------
+
+// Builds (or restores) epub.js's percentage<->CFI location table so the
+// progress slider can jump anywhere in the book and track normal page
+// turns. Generating it walks the entire book once - a real scan, not
+// instant - so the result is cached in the progress record (see
+// PROGRESS_DEFAULTS.locationsData in db.js) and just reloaded (synchronous,
+// cheap) on every later open.
+async function ensureLocations(forBook, bookId, progress) {
+  if (progress.locationsData) {
+    forBook.locations.load(progress.locationsData);
+  } else {
+    await forBook.locations.generate();
+    const data = forBook.locations.save();
+    // The reader may have switched to a different book while this ran -
+    // still worth caching (the book object it ran against is still valid
+    // and now has a populated location table), but don't touch progress
+    // for whatever book is open now.
+    if (currentBookId === bookId) {
+      currentProgress = await updateProgress(bookId, { locationsData: data });
+    } else {
+      await updateProgress(bookId, { locationsData: data });
+    }
+  }
+
+  // Only touch the UI if this is still the book being read.
+  if (currentBookId !== bookId) return;
+  progressSlider.disabled = false;
+  if (currentProgress.currentCfi) {
+    const pct = forBook.locations.percentageFromCfi(currentProgress.currentCfi);
+    if (typeof pct === 'number') {
+      progressSlider.value = Math.round(pct * 1000);
+      progressLabel.textContent = `${Math.round(pct * 100)}%`;
+      return;
+    }
+  }
+  progressLabel.textContent = `${Math.round((progressSlider.value / 1000) * 100)}%`;
 }
 
 // Read by chat.js / context-builder.js to know what book/position to build
@@ -278,6 +382,15 @@ function handleRelocated(location) {
   const cfi = location.start.cfi;
   const wasFurthest = currentProgress.furthestSpineIndex || 0;
   const isNewFurthest = spineIndex > wasFurthest;
+
+  // Keep the progress slider in sync with normal page turns, not just
+  // drags - only meaningful once the location table exists (see
+  // ensureLocations()), so this is a no-op until that resolves.
+  if (book.locations && book.locations.total && typeof location.start.percentage === 'number') {
+    progressSlider.disabled = false;
+    progressSlider.value = Math.round(location.start.percentage * 1000);
+    progressLabel.textContent = `${Math.round(location.start.percentage * 100)}%`;
+  }
 
   const updates = { currentCfi: cfi, currentSpineIndex: spineIndex };
   if (isNewFurthest) {
@@ -449,6 +562,112 @@ async function updateBookmarkButtonState() {
   const bookmarks = await getBookmarks(currentBookId);
   const isBookmarked = bookmarks.some((b) => b.cfi === currentProgress.currentCfi);
   bookmarkButton.textContent = isBookmarked ? '♥' : '♡';
+}
+
+// ---------------------------------------------------------------------
+// Highlighting
+//
+// The page-turn overlay (see initPageTurnOverlay() above) normally sits
+// above the book's iframe and catches every touch so swipe/tap page-turns
+// work reliably on iOS - but that also means a touch never reaches the
+// actual book text underneath, so native long-press text selection can't
+// happen while it's active. Select mode (toggled by #select-text-button)
+// disables the overlay's touch-catching instead, so normal iOS text
+// selection reaches the book underneath; epub.js emits a 'selected' event
+// (with the CFI range of what was selected) once that settles.
+// ---------------------------------------------------------------------
+
+function setSelectMode(active) {
+  selectModeActive = active;
+  pageTurnOverlay.classList.toggle('page-turn-overlay-disabled', active);
+  selectTextButton.classList.toggle('icon-button-active', active);
+  if (!active) {
+    clearPendingSelection();
+  }
+}
+
+function handleSelected(cfiRange, contents) {
+  if (!selectModeActive) return; // stray event - shouldn't happen since the overlay blocks touches otherwise
+  pendingCfiRange = cfiRange;
+  pendingContents = contents;
+  highlightActionBar.hidden = false;
+}
+
+function clearPendingSelection() {
+  pendingCfiRange = null;
+  pendingContents = null;
+  highlightActionBar.hidden = true;
+  if (rendition) {
+    rendition.getContents().forEach((contents) => {
+      const selection = contents.window.getSelection();
+      if (selection) selection.removeAllRanges();
+    });
+  }
+}
+
+function cancelPendingHighlight() {
+  // Stay in select mode - the reader may want to try selecting again -
+  // just clear this attempt.
+  clearPendingSelection();
+}
+
+async function saveHighlight() {
+  if (!pendingCfiRange || !currentBookId) return;
+  const cfiRange = pendingCfiRange;
+  const text = pendingContents ? pendingContents.range(cfiRange).toString().replace(/\s+/g, ' ').trim() : '';
+
+  registerHighlightAnnotation(cfiRange);
+  await addHighlight(currentBookId, cfiRange, text);
+  await refreshHighlightList();
+  setSelectMode(false); // one highlight, then back to normal reading
+}
+
+function registerHighlightAnnotation(cfiRange) {
+  rendition.annotations.highlight(cfiRange, {}, null, HIGHLIGHT_CLASSNAME, HIGHLIGHT_STYLES);
+}
+
+// Registers every saved highlight as an annotation right after opening the
+// book (regardless of which page is currently shown) - epub.js tracks
+// annotations by spine section internally and renders each one whenever
+// its section actually gets displayed, so this doesn't need to wait for
+// the reader to reach that page.
+async function loadHighlights() {
+  const highlights = await getHighlights(currentBookId);
+  highlights.forEach((highlight) => registerHighlightAnnotation(highlight.cfiRange));
+  renderHighlightList(highlights);
+}
+
+async function refreshHighlightList() {
+  renderHighlightList(await getHighlights(currentBookId));
+}
+
+function renderHighlightList(highlights) {
+  highlightList.innerHTML = '';
+  for (const highlight of highlights) {
+    const snippet =
+      highlight.text.length > 100 ? `${highlight.text.slice(0, 100)}…` : highlight.text || 'Highlight';
+
+    const li = document.createElement('li');
+    li.textContent = snippet;
+    li.addEventListener('click', () => {
+      safeDisplay(highlight.cfiRange, snippet);
+      tocPanel.hidden = true;
+    });
+
+    const deleteButton = document.createElement('button');
+    deleteButton.className = 'icon-button';
+    deleteButton.textContent = '✕';
+    deleteButton.setAttribute('aria-label', 'Delete highlight');
+    deleteButton.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      rendition.annotations.remove(highlight.cfiRange, 'highlight');
+      await deleteHighlight(highlight.id);
+      await refreshHighlightList();
+    });
+
+    li.appendChild(deleteButton);
+    highlightList.appendChild(li);
+  }
 }
 
 // ---------------------------------------------------------------------

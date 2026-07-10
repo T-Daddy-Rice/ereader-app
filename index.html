@@ -51,22 +51,40 @@
         <button id="back-to-library-button" class="icon-button" title="Back to library" aria-label="Back to library">&#8592;</button>
         <h1 id="reader-title" class="app-title app-title-truncate"></h1>
         <div class="top-bar-actions">
+          <button id="select-text-button" class="icon-button" title="Select text to highlight" aria-label="Select text to highlight">&#9998;</button>
           <button id="bookmark-button" class="icon-button" title="Bookmark this page" aria-label="Bookmark this page">&#9825;</button>
-          <button id="toc-button" class="icon-button" title="Contents &amp; bookmarks" aria-label="Contents and bookmarks">&#9776;</button>
+          <button id="toc-button" class="icon-button" title="Contents, bookmarks &amp; highlights" aria-label="Contents, bookmarks and highlights">&#9776;</button>
           <button id="display-settings-button" class="icon-button" title="Display settings" aria-label="Display settings">Aa</button>
           <button id="chat-toggle-button" class="icon-button" title="Ask about this book" aria-label="Ask about this book">&#128172;</button>
         </div>
       </header>
 
+      <!-- Whole-book reading progress. Disabled ("Calculating...") until
+           epub.js's percentage<->CFI location table is ready - see
+           ensureLocations() in reader.js. -->
+      <div id="progress-bar" class="progress-bar">
+        <input id="progress-slider" class="progress-slider" type="range" min="0" max="1000" value="0" disabled aria-label="Reading progress" />
+        <span id="progress-label" class="progress-label">Calculating…</span>
+      </div>
+
       <div class="reader-body">
         <div id="viewer" class="viewer"></div>
         <!-- Sits above the iframe that renders the book (which lives in a
              sandboxed document touch events don't reliably reach on iOS).
-             Handles swipe-anywhere page turns. -->
+             Handles swipe-anywhere page turns. Disabled (pointer-events:
+             none, see .page-turn-overlay-disabled in reader.css) while
+             select mode is on, so touches can reach the book text
+             underneath for native text selection. -->
         <div id="page-turn-overlay" class="page-turn-overlay" aria-hidden="true"></div>
+
+        <!-- Shown when a text selection is active while select mode is on. -->
+        <div id="highlight-action-bar" class="highlight-action-bar" hidden>
+          <button id="highlight-cancel-button" class="pill-button">Cancel</button>
+          <button id="highlight-save-button" class="pill-button pill-button-active">Highlight</button>
+        </div>
       </div>
 
-      <!-- Contents (TOC) + bookmarks side panel -->
+      <!-- Contents (TOC) + bookmarks + highlights side panel -->
       <aside id="toc-panel" class="side-panel" hidden>
         <div class="panel-header">
           <h2>Contents</h2>
@@ -75,9 +93,11 @@
         <div class="panel-tabs">
           <button id="toc-tab-contents" class="panel-tab panel-tab-active" data-tab="contents">Contents</button>
           <button id="toc-tab-bookmarks" class="panel-tab" data-tab="bookmarks">Bookmarks</button>
+          <button id="toc-tab-highlights" class="panel-tab" data-tab="highlights">Highlights</button>
         </div>
         <ul id="toc-list" class="panel-list"></ul>
         <ul id="bookmark-list" class="panel-list" hidden></ul>
+        <ul id="highlight-list" class="panel-list" hidden></ul>
       </aside>
 
       <!-- Font/theme display settings panel -->

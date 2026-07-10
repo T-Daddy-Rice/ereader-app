@@ -2,6 +2,42 @@
    display-settings panel controls (side-panel/panel-list base styles live
    in base.css). */
 
+/* Whole-book reading progress slider, between the top bar and the viewer. */
+.progress-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px 8px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.progress-slider {
+  flex: 1;
+  accent-color: var(--accent);
+}
+
+.progress-slider:disabled {
+  opacity: 0.5;
+}
+
+.progress-label {
+  min-width: 84px;
+  text-align: right;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.icon-button-active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.icon-button-active:hover,
+.icon-button-active:active {
+  background: var(--accent);
+}
+
 .reader-body {
   position: relative;
   flex: 1;
@@ -28,6 +64,31 @@
   inset: 0;
   z-index: 1;
   touch-action: pan-y;
+}
+
+/* Toggled on while select mode is on (see setSelectMode() in reader.js) so
+   touches reach the book iframe underneath for native text selection,
+   instead of being captured here for page-turn gestures. */
+.page-turn-overlay-disabled {
+  pointer-events: none;
+}
+
+/* Small pill toolbar shown near the bottom of the reading area once a text
+   selection is made while select mode is on. Lives above the page-turn
+   overlay (z-index 1) but below the side panels/chat drawer (z-index 20). */
+.highlight-action-bar {
+  position: absolute;
+  left: 50%;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 2;
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
 }
 
 .font-size-value {
